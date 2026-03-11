@@ -1,7 +1,7 @@
-import type { SearchResult } from "@/app/page";
+import type { Company } from "@/types";
 
 type Props = {
-  results: SearchResult[];
+  results: Company[];
 };
 
 export default function ResultList({ results }: Props) {

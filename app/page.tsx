@@ -3,21 +3,10 @@
 import { useState } from "react";
 import SearchForm from "@/components/SearchForm";
 import ResultList from "@/components/ResultList";
-
-export type SearchParams = {
-  keyword: string;
-  industry: string;
-  region: string;
-};
-
-export type SearchResult = {
-  title: string;
-  link: string;
-  snippet: string;
-};
+import type { SearchParams, Company } from "@/types";
 
 export default function HomePage() {
-  const [results, setResults] = useState<SearchResult[]>([]);
+  const [results, setResults] = useState<Company[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
@@ -74,9 +63,7 @@ export default function HomePage() {
         </div>
       )}
 
-      {!loading && searched && !error && (
-        <ResultList results={results} />
-      )}
+      {!loading && searched && !error && <ResultList results={results} />}
 
       {loading && (
         <p style={{ marginTop: 24, color: "#888", textAlign: "center" }}>検索中...</p>

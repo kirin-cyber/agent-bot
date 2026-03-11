@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { SearchParams } from "@/app/page";
+import type { SearchParams } from "@/types";
 
 type Props = {
   onSearch: (params: SearchParams) => void;

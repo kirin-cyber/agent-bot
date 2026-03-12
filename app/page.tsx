@@ -10,6 +10,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
+  const [source, setSource] = useState<"google" | "duckduckgo" | null>(null);
 
   const handleSearch = async (params: SearchParams) => {
     setLoading(true);
@@ -29,6 +30,7 @@ export default function HomePage() {
       }
       const data = await res.json();
       setResults(data.results);
+      setSource(data.source ?? null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "不明なエラーが発生しました");
       setResults([]);
@@ -63,7 +65,16 @@ export default function HomePage() {
         </div>
       )}
 
-      {!loading && searched && !error && <ResultList results={results} />}
+      {!loading && searched && !error && (
+        <>
+          {source === "duckduckgo" && (
+            <p style={{ marginTop: 16, fontSize: 12, color: "#888" }}>
+              ※ DuckDuckGo で検索しました（Google API 未設定）
+            </p>
+          )}
+          <ResultList results={results} />
+        </>
+      )}
 
       {loading && (
         <p style={{ marginTop: 24, color: "#888", textAlign: "center" }}>検索中...</p>

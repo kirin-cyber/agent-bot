@@ -11,8 +11,8 @@ export async function GET(request: NextRequest) {
   };
 
   try {
-    const results = await searchCompanies(params);
-    return NextResponse.json({ results });
+    const { results, source } = await searchCompanies(params);
+    return NextResponse.json({ results, source });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "不明なエラーが発生しました";
     const status = message.includes("APIキーが設定されていません") ? 500 : 400;

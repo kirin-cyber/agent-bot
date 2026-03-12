@@ -91,15 +91,28 @@ async function searchWithDuckDuckGo(query: string): Promise<Company[]> {
   url.searchParams.set("format", "json");
   url.searchParams.set("no_html", "1");
   url.searchParams.set("skip_disambig", "1");
+  url.searchParams.set("no_redirect", "1");
 
   const res = await fetch(url.toString(), {
-    headers: { "Accept-Language": "ja" },
+    headers: {
+      "Accept-Language": "ja",
+      "User-Agent": "Mozilla/5.0 (compatible; agent-bot/1.0)",
+    },
+    redirect: "follow",
   });
   if (!res.ok) {
     throw new Error(`DuckDuckGo APIエラー (HTTP ${res.status})`);
   }
 
-  const data: DDGResponse = await res.json();
+  const text = await res.text();
+  if (!text || text.trim() === "") return [];
+
+  let data: DDGResponse;
+  try {
+    data = JSON.parse(text) as DDGResponse;
+  } catch {
+    return [];
+  }
   const results: Company[] = [];
 
   // Abstract（要約）があれば先頭に追加

@@ -24,12 +24,15 @@ export default function HomePage() {
         region: params.region,
       });
       const res = await fetch(`/api/search?${query.toString()}`);
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "検索に失敗しました");
+      const text = await res.text();
+      let data: { results?: typeof results; error?: string; source?: "google" | "duckduckgo" };
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error("サーバーエラーが発生しました。しばらく待ってから再試行してください。");
       }
-      const data = await res.json();
-      setResults(data.results);
+      if (!res.ok) throw new Error(data.error || "検索に失敗しました");
+      setResults(data.results ?? []);
       setSource(data.source ?? null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "不明なエラーが発生しました");

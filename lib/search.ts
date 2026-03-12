@@ -93,16 +93,25 @@ async function searchWithDuckDuckGo(query: string): Promise<Company[]> {
   url.searchParams.set("skip_disambig", "1");
   url.searchParams.set("no_redirect", "1");
 
-  const res = await fetch(url.toString(), {
-    headers: {
-      "Accept-Language": "ja",
-      "User-Agent": "Mozilla/5.0 (compatible; agent-bot/1.0)",
-    },
-    redirect: "follow",
-  });
-  if (!res.ok) {
-    throw new Error(`DuckDuckGo APIエラー (HTTP ${res.status})`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 7000);
+
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), {
+      headers: {
+        "Accept-Language": "ja",
+        "User-Agent": "Mozilla/5.0 (compatible; agent-bot/1.0)",
+      },
+      redirect: "follow",
+      signal: controller.signal,
+    });
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
   }
+  if (!res.ok) return [];
 
   const text = await res.text();
   if (!text || text.trim() === "") return [];

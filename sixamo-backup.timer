@@ -1,0 +1,9 @@
+[Unit]
+Description=Sixamo DB Backup Timer
+
+[Timer]
+OnCalendar=*-*-* 00:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

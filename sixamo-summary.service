@@ -1,0 +1,12 @@
+[Unit]
+Description=Sixamo Weekly Summary
+After=network.target
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/sixamo
+Environment="PATH=/opt/sixamo/venv/bin:/usr/bin"
+EnvironmentFile=/opt/sixamo/.env
+ExecStart=/opt/sixamo/venv/bin/python /opt/sixamo/summary.py

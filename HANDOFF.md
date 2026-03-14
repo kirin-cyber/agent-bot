@@ -1,6 +1,6 @@
 # ハンドオフ: Sixamo Zendesk自動化システム 進捗まとめ
 
-**期間**: 2026/03/13 〜 2026/03/14
+**期間**: 2026/03/13 〜 2026/03/15
 **ブランチ**: `claude/zendesk-automation-system-WBDN5`
 **リポジトリ**: `kirin-cyber/agent-bot`
 
@@ -35,14 +35,29 @@
 | exit-code 2 | `Type=notify`（gunicorn非対応） | `Type=exec` に変更 |
 | exit-code 2 | `${GUNICORN_WORKERS}`がExecStart内で未展開 | `bash -c` でラップ、デフォルト値4 |
 
+### 4. 本番サーバーデプロイ完了（3/15）
+
+| 作業 | 状態 |
+|---|---|
+| サーバー再起動 | 完了 |
+| `git clone` & ブランチ切替 | 完了（`/opt/sixamo`） |
+| Python venv & `pip install` | 完了 |
+| `.env` 設定（APIキー全件） | 完了 |
+| `/opt/sixamo` 権限修正 (`chown www-data`) | 完了 |
+| systemdサービス登録 & 起動 | 完了（`sixamo.service`, `backup.timer`, `summary.timer`） |
+| Nginx リバースプロキシ設定 | 完了（80番ポート → 5000番ポート） |
+| ヘルスチェック（内部・外部） | 完了（`{"status":"ok"}`） |
+| Zendesk Webhook設定 | 完了（`http://133.117.75.92/webhook`, POST, JSON） |
+| Zendesk トリガー設定 | **進行中** |
+
 ---
 
 ## 現在のシステム構成
 
 ```
 ┌─────────────────┐     Webhook      ┌──────────────────────┐
-│    Zendesk       │ ───────────────→ │  Flask (gunicorn)    │
-│  カスタマーサポート │   POST /webhook  │  main.py :5000       │
+│    Zendesk       │ ───────────────→ │  Nginx (:80)         │
+│  カスタマーサポート │   POST /webhook  │  → gunicorn (:5000)  │
 └─────────────────┘                  │                      │
                                      │  ┌─ Claude AI 分析    │
                                      │  ├─ テンプレート照合    │
@@ -53,7 +68,7 @@
                               ▼                                    ▼
                      ┌────────────────┐                  ┌─────────────────┐
                      │ Zendesk API    │                  │ Telegram Bot    │
-                     │ 自動返信送信    │                  │ スタッフ転送/通知 │
+                     │ 自動返信送信    │                  │ @kirin76supportbot │
                      └────────────────┘                  └─────────────────┘
 
      ┌─────────────────────┐     ┌──────────────────────┐
@@ -71,41 +86,60 @@
 |---|---|
 | **サーバー** | `133.117.75.92` (root) |
 | **デプロイ先** | `/opt/sixamo` |
+| **所有者** | `www-data:www-data` |
+| **sixamo.service** | active (running) |
+| **Nginx** | active (running), 80→5000 プロキシ |
 | **DRYRUN_MODE** | `true`（返信は送信されず、Telegramプレビューのみ） |
-| **sixamo.service** | 修正済み（要 `git pull` & `systemctl restart`） |
+| **ヘルスチェック** | `curl http://133.117.75.92/health` → `{"status":"ok"}` |
 
 ---
 
 ## 次のステップ（未実施）
 
-### 1. 本番サーバーで修正版を適用
+### 1. Zendeskトリガー設定
 
-```bash
-cd /opt/sixamo && git pull origin claude/zendesk-automation-system-WBDN5
-cp sixamo.service /etc/systemd/system/
-systemctl daemon-reload && systemctl restart sixamo
-systemctl status sixamo
+Zendesk管理画面 → オブジェクトとルール → トリガー → 追加：
+- **トリガー名**: `Sixamo自動応答`
+- **条件**: チケット → ステータス → 新規
+- **アクション**: Webhookに通知、JSON本文:
+
+```json
+{
+  "ticket_id": "{{ticket.id}}",
+  "subject": "{{ticket.title}}",
+  "description": "{{ticket.description}}",
+  "requester_email": "{{ticket.requester.email}}",
+  "requester_name": "{{ticket.requester.name}}",
+  "status": "{{ticket.status}}",
+  "created_at": "{{ticket.created_at}}"
+}
 ```
 
-### 2. 動作確認
+### 2. テストチケットでDRYRUN動作確認
 
+テストチケットを作成 → Telegramにプレビューが届くことを確認
+
+### 3. DRYRUN_MODE解除
+
+サーバーで実行:
 ```bash
-curl http://127.0.0.1:5000/health
+sed -i 's/DRYRUN_MODE=true/DRYRUN_MODE=false/' /opt/sixamo/.env
+systemctl restart sixamo
 ```
 
-### 3. Zendesk側のWebhook設定
+### 4. HTTPS化（任意）
 
-- Webhook URL: `https://<ドメイン>/webhook`
-- `ZENDESK_WEBHOOK_SECRET` を `.env` に設定
-- `ZENDESK_IP_RANGES` にZendesk IPレンジを設定
+SSL証明書を取得してNginxでHTTPS対応（Let's Encrypt等）
 
-### 4. DRYRUN_MODE解除
+---
 
-`.env` で `DRYRUN_MODE=false` に変更して本番稼働開始
+## 設定済みサービス情報
 
-### 5. Nginx/リバースプロキシ設定
-
-外部からのHTTPS受信用（未構築）
+| サービス | 情報 |
+|---|---|
+| **Zendesk** | `sixamogrouplimited.zendesk.com` / `shiomi.support@sixamo.forex` |
+| **Telegram Bot** | `@kirin76supportbot` / Chat ID: `6976979859` |
+| **Anthropic** | claude-sonnet-4-20250514 |
 
 ---
 
@@ -114,3 +148,4 @@ curl http://127.0.0.1:5000/health
 - `.env` にはAPIキー・トークンが含まれるため、Gitには含めていない（`.env.example` のみ）
 - 現在 `DRYRUN_MODE=true` のため、Zendeskへの自動返信は**送信されない**（Telegramプレビューのみ）
 - SSH接続はCI環境からは不可（ネットワーク制限）。手動での本番適用が必要
+- `/opt/sixamo` の所有者は `www-data` に設定済み。`git pull` 後は再度 `chown -R www-data:www-data /opt/sixamo` が必要

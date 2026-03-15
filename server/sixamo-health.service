@@ -16,4 +16,3 @@ EnvironmentFile=-/opt/sixamo/.env
 
 [Install]
 WantedBy=multi-user.target
-Alias=sixamo.service

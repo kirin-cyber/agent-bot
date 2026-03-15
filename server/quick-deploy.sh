@@ -2,7 +2,9 @@
 # Sixamo クイックデプロイ（コード更新 + .env設定 + 再起動）
 # 使用方法: sudo bash quick-deploy.sh
 #
-# 前提: 初回デプロイ (deploy.sh) が完了済みであること
+# 本番構成:
+#   sixamo.service (gunicorn + main.py) → ポート5000
+#   sixamo-health.service は不使用（停止・無効化する）
 set -euo pipefail
 
 APP_DIR="/opt/sixamo"
@@ -13,6 +15,24 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 echo "============================================"
 echo " Sixamo クイックデプロイ"
 echo "============================================"
+echo ""
+
+# ---------------------------------------------------------------
+# Step0: sixamo-health.service を停止・無効化
+# ---------------------------------------------------------------
+echo "=== [Step0] sixamo-health.service 停止 ==="
+if systemctl is-active --quiet sixamo-health 2>/dev/null; then
+    systemctl stop sixamo-health
+    echo "  -> sixamo-health を停止しました"
+else
+    echo "  -> sixamo-health は既に停止済み"
+fi
+if systemctl is-enabled --quiet sixamo-health 2>/dev/null; then
+    systemctl disable sixamo-health
+    echo "  -> sixamo-health を無効化しました"
+else
+    echo "  -> sixamo-health は既に無効化済み"
+fi
 echo ""
 
 # ---------------------------------------------------------------
@@ -78,35 +98,44 @@ fi
 cp "$SCRIPT_DIR/health_app.py" "$APP_DIR/health_app.py"
 echo "  -> health_app.py を配置しました"
 
+cp "$SCRIPT_DIR/main.py" "$APP_DIR/main.py"
+echo "  -> main.py を配置しました"
+
 if [ -f "$SCRIPT_DIR/test_webhook.py" ]; then
     cp "$SCRIPT_DIR/test_webhook.py" "$APP_DIR/test_webhook.py"
     echo "  -> test_webhook.py を配置しました"
 fi
 
-# systemd サービスファイルも更新
-cp "$SCRIPT_DIR/sixamo-health.service" /etc/systemd/system/sixamo-health.service
-systemctl daemon-reload
-echo "  -> systemd サービス定義を更新しました"
+# sixamo.service を更新（既存がなければ新規配置）
+if [ -f "$SCRIPT_DIR/sixamo.service" ]; then
+    cp "$SCRIPT_DIR/sixamo.service" /etc/systemd/system/sixamo.service
+    systemctl daemon-reload
+    echo "  -> sixamo.service を更新しました"
+fi
 
 chown -R www-data:www-data "$APP_DIR"
 echo ""
 
 # ---------------------------------------------------------------
-# Step3: サービス再起動
+# Step3: sixamo.service を再起動
 # ---------------------------------------------------------------
-echo "=== [Step3] サービス再起動 ==="
-systemctl restart sixamo-health
-sleep 2
+echo "=== [Step3] sixamo.service 再起動 ==="
+systemctl restart sixamo
+sleep 3
 
-if systemctl is-active --quiet sixamo-health; then
-    echo "  -> sixamo-health: active (正常)"
+if systemctl is-active --quiet sixamo; then
+    echo "  -> sixamo: active (正常)"
 else
-    echo "  -> [ERROR] sixamo-health の起動に失敗しました"
-    systemctl status sixamo-health --no-pager || true
+    echo "  -> [ERROR] sixamo の起動に失敗しました"
+    systemctl status sixamo --no-pager || true
+    echo ""
+    echo "  -> journalctl で詳細を確認:"
+    journalctl -u sixamo --no-pager -n 20 || true
     exit 1
 fi
 
 # ヘルスチェック
+sleep 1
 HEALTH=$(curl -s http://127.0.0.1:5000/health 2>/dev/null || echo '{"error":"接続失敗"}')
 echo "  -> ヘルスチェック: $HEALTH"
 echo ""
@@ -120,7 +149,7 @@ echo ""
 echo "     🚀 サーバーが起動しました"
 echo "     DRYRUNモード：ON"
 echo "     テンプレート数：0件"
-echo "     ワーカー数：1"
+echo "     ワーカー数：2"
 echo ""
 
 # ログ確認
@@ -138,6 +167,11 @@ echo ""
 echo "============================================"
 echo " デプロイ完了!"
 echo "============================================"
+echo ""
+echo " サービス状態:"
+echo "   sixamo:        $(systemctl is-active sixamo 2>/dev/null || echo 'unknown')"
+echo "   sixamo-health: $(systemctl is-active sixamo-health 2>/dev/null || echo 'inactive')"
+echo "   nginx:         $(systemctl is-active nginx 2>/dev/null || echo 'unknown')"
 echo ""
 echo " 次のステップ:"
 echo "   1. Telegramに🚀通知が届いたか確認"

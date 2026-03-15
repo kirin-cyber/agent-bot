@@ -51,6 +51,10 @@ echo ""
 echo "=== [2/6] アプリケーション配置 ==="
 mkdir -p "$APP_DIR"
 cp "$SCRIPT_DIR/health_app.py" "$APP_DIR/health_app.py"
+if [ -f "$SCRIPT_DIR/test_webhook.py" ]; then
+    cp "$SCRIPT_DIR/test_webhook.py" "$APP_DIR/test_webhook.py"
+    echo "  -> $APP_DIR/test_webhook.py を配置しました"
+fi
 chown -R www-data:www-data "$APP_DIR"
 echo "  -> $APP_DIR/health_app.py を配置しました"
 
@@ -244,6 +248,8 @@ echo "     -d '{\"ticket\":{\"id\":1,\"subject\":\"テスト\",\"status\":\"new\
 echo ""
 echo " ログ確認:"
 echo "   journalctl -u sixamo-health -f"
+echo "   tail -f /opt/sixamo/access.log"
+echo "   tail -f /opt/sixamo/error.log"
 echo "   tail -f /var/log/nginx/sixamo-api.error.log"
 echo ""
 

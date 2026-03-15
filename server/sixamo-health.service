@@ -1,0 +1,17 @@
+[Unit]
+Description=Sixamo Health Check Service
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/sixamo
+ExecStart=/usr/bin/python3 /opt/sixamo/health_app.py
+Restart=always
+RestartSec=5
+Environment=HEALTH_HOST=127.0.0.1
+Environment=HEALTH_PORT=5000
+
+[Install]
+WantedBy=multi-user.target

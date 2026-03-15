@@ -1,5 +1,5 @@
 [Unit]
-Description=Sixamo Health Check Service
+Description=Sixamo API Server (Webhook + Health Check)
 After=network.target
 
 [Service]
@@ -12,6 +12,8 @@ Restart=always
 RestartSec=5
 Environment=HEALTH_HOST=127.0.0.1
 Environment=HEALTH_PORT=5000
+EnvironmentFile=-/opt/sixamo/.env
 
 [Install]
 WantedBy=multi-user.target
+Alias=sixamo.service

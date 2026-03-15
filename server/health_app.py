@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import logging
 import os
 import subprocess
 import time
@@ -17,6 +18,7 @@ import urllib.request
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime, timezone
+from logging.handlers import RotatingFileHandler
 
 START_TIME = time.monotonic()
 
@@ -45,7 +47,58 @@ ZENDESK_WEBHOOK_SECRET = os.environ.get("ZENDESK_WEBHOOK_SECRET", "")
 ZENDESK_IP_RANGES = os.environ.get("ZENDESK_IP_RANGES", "216.198.0.0/18")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+DRYRUN_MODE = os.environ.get("DRYRUN_MODE", "false").lower() in ("true", "1", "yes")
+LOG_DIR = os.environ.get("LOG_DIR", "/opt/sixamo")
 
+# --- ログ設定 ---
+
+def _setup_logger(name: str, filename: str, level=logging.INFO) -> logging.Logger:
+    """ファイル出力付きロガーを作成"""
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    if logger.handlers:
+        return logger
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
+                            datefmt="%Y-%m-%d %H:%M:%S")
+    # ファイルハンドラー (10MB, 5世代ローテーション)
+    filepath = os.path.join(LOG_DIR, filename)
+    try:
+        fh = RotatingFileHandler(filepath, maxBytes=10*1024*1024, backupCount=5)
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
+    except (PermissionError, FileNotFoundError):
+        pass  # ログディレクトリが無い場合はstdoutのみ
+    # stdoutハンドラー
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+    logger.addHandler(sh)
+    return logger
+
+
+access_log = _setup_logger("access", "access.log")
+error_log = _setup_logger("error", "error.log", logging.WARNING)
+
+# --- 重複検知 ---
+
+class DuplicateDetector:
+    """チケットIDベースの重複検知（メモリ内TTLキャッシュ）"""
+
+    def __init__(self, ttl_seconds: int = 300):
+        self._seen: dict[str, float] = {}  # key -> expiry timestamp
+        self._ttl = ttl_seconds
+
+    def is_duplicate(self, ticket_id) -> bool:
+        key = str(ticket_id)
+        now = time.time()
+        # 期限切れエントリを掃除
+        self._seen = {k: v for k, v in self._seen.items() if v > now}
+        if key in self._seen:
+            return True
+        self._seen[key] = now + self._ttl
+        return False
+
+
+_dedup = DuplicateDetector(ttl_seconds=300)
 
 # ---------------------------------------------------------------
 # Zendesk 署名検証
@@ -91,7 +144,7 @@ def is_zendesk_ip(client_ip: str) -> bool:
 def send_telegram(text: str) -> bool:
     """Telegram Bot API でメッセージを送信"""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print(f"[WARN] Telegram未設定。メッセージ: {text}")
+        access_log.warning("Telegram未設定。メッセージ: %s", text)
         return False
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     data = urllib.parse.urlencode({
@@ -105,7 +158,7 @@ def send_telegram(text: str) -> bool:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return resp.status == 200
     except Exception as e:
-        print(f"[ERROR] Telegram送信失敗: {e}")
+        error_log.error("Telegram送信失敗: %s", e)
         return False
 
 
@@ -122,8 +175,8 @@ def format_ticket_message(payload: dict) -> str:
     if len(description) > 200:
         description = description[:200] + "..."
 
-    return (
-        f"🔔 <b>新しいZendeskチケット</b>\n"
+    msg = (
+        f"✅ <b>Zendesk返信案</b>\n"
         f"\n"
         f"<b>ID:</b> #{ticket_id}\n"
         f"<b>件名:</b> {subject}\n"
@@ -132,6 +185,23 @@ def format_ticket_message(payload: dict) -> str:
         f"<b>依頼者:</b> {requester_name}\n"
         f"\n"
         f"<b>説明:</b>\n{description}"
+    )
+
+    if DRYRUN_MODE:
+        msg += "\n\n⚠️ DRYRUNモード中 — 自動返信は送信されません"
+
+    return msg
+
+
+def format_parse_error_message(raw_body: str, error_msg: str) -> str:
+    """パースエラー時の Telegram 通知メッセージ"""
+    preview = raw_body[:200] + "..." if len(raw_body) > 200 else raw_body
+    return (
+        f"⚠️ <b>Webhook パースエラー</b>\n"
+        f"\n"
+        f"<b>エラー:</b> {error_msg}\n"
+        f"\n"
+        f"<b>受信データ:</b>\n<code>{preview}</code>"
     )
 
 
@@ -176,6 +246,7 @@ def build_health_response() -> dict:
         "status": overall,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "uptime_seconds": round(time.monotonic() - START_TIME, 1),
+        "dryrun_mode": DRYRUN_MODE,
         "services": {
             "nginx": nginx_status,
             "health_app": "active",
@@ -207,10 +278,11 @@ class AppHandler(BaseHTTPRequestHandler):
             self._json_response(404, {"error": "not found"})
 
     def _handle_webhook(self):
-        # 1. IP制限チェック
         client_ip = self.headers.get("X-Real-IP", self.client_address[0])
+
+        # 1. IP制限チェック
         if ZENDESK_IP_RANGES and not is_zendesk_ip(client_ip):
-            print(f"[REJECT] IP制限: {client_ip}")
+            access_log.warning("IP制限で拒否: %s", client_ip)
             self._json_response(403, {"error": "forbidden: IP not allowed"})
             return
 
@@ -227,27 +299,43 @@ class AppHandler(BaseHTTPRequestHandler):
 
         if ZENDESK_WEBHOOK_SECRET:
             if not signature or not timestamp:
+                access_log.warning("署名ヘッダー不足: %s", client_ip)
                 self._json_response(401, {"error": "missing signature headers"})
                 return
             if not verify_zendesk_signature(signature, timestamp, body):
-                print(f"[REJECT] 署名検証失敗: {client_ip}")
+                error_log.warning("署名検証失敗: %s", client_ip)
                 self._json_response(401, {"error": "invalid signature"})
                 return
 
         # 4. ペイロード解析
         try:
             payload = json.loads(body)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            error_log.error("JSONパースエラー: %s", e)
+            # パースエラーをTelegramに通知
+            raw = body.decode("utf-8", errors="replace")
+            err_msg = format_parse_error_message(raw, str(e))
+            send_telegram(err_msg)
             self._json_response(400, {"error": "invalid JSON"})
             return
 
-        # 5. Telegram通知
+        # 5. 重複チェック
+        ticket = payload.get("ticket", payload)
+        ticket_id = ticket.get("id")
+        if ticket_id and _dedup.is_duplicate(ticket_id):
+            access_log.info("重複スキップ: ticket #%s", ticket_id)
+            self._json_response(200, {"status": "duplicate_skipped",
+                                      "ticket_id": ticket_id})
+            return
+
+        # 6. Telegram通知
         message = format_ticket_message(payload)
         sent = send_telegram(message)
-        print(f"[WEBHOOK] チケット受信, Telegram送信: {'成功' if sent else '失敗'}")
+        access_log.info("Webhook処理完了: ticket #%s, Telegram=%s, dryrun=%s",
+                        ticket_id, "sent" if sent else "failed", DRYRUN_MODE)
 
         status = "notified" if sent else "received_but_notification_failed"
-        self._json_response(200, {"status": status})
+        self._json_response(200, {"status": status, "dryrun": DRYRUN_MODE})
 
     def _json_response(self, code: int, data: dict):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -258,21 +346,25 @@ class AppHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, fmt, *args):
-        if "/health" not in (args[0] if args else ""):
-            super().log_message(fmt, *args)
+        msg = fmt % args if args else fmt
+        if "/health" not in msg:
+            access_log.info(msg)
 
 
 def main():
     host = os.environ.get("HEALTH_HOST", "127.0.0.1")
     port = int(os.environ.get("HEALTH_PORT", "5000"))
     server = HTTPServer((host, port), AppHandler)
-    print(f"Sixamo API server started on {host}:{port}")
-    print(f"  Zendesk webhook: {'enabled' if ZENDESK_WEBHOOK_SECRET else 'disabled (no secret)'}")
-    print(f"  Telegram:        {'enabled' if TELEGRAM_BOT_TOKEN else 'disabled (no token)'}")
+    access_log.info("Sixamo API server started on %s:%d", host, port)
+    access_log.info("  Zendesk webhook: %s",
+                    "enabled" if ZENDESK_WEBHOOK_SECRET else "disabled (no secret)")
+    access_log.info("  Telegram:        %s",
+                    "enabled" if TELEGRAM_BOT_TOKEN else "disabled (no token)")
+    access_log.info("  DRYRUN_MODE:     %s", DRYRUN_MODE)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("Shutting down...")
+        access_log.info("Shutting down...")
         server.server_close()
 
 

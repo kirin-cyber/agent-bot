@@ -3,7 +3,7 @@ Sixamo API Server — WSGI エントリーポイント
 gunicorn から起動される WSGI アプリケーション。
 
 起動例:
-    gunicorn main:application -b 127.0.0.1:5000 --workers 2 --timeout 60
+    gunicorn main:app -b 127.0.0.1:5000 --workers 2 --timeout 60
 """
 
 import json
@@ -35,8 +35,8 @@ from health_app import (
 # WSGI アプリケーション
 # ---------------------------------------------------------------
 
-def application(environ, start_response):
-    """WSGI callable — gunicorn のエントリーポイント"""
+def app(environ, start_response):
+    """WSGI callable — gunicorn のエントリーポイント (main:app)"""
     method = environ.get("REQUEST_METHOD", "GET")
     path = environ.get("PATH_INFO", "/")
 
@@ -46,6 +46,10 @@ def application(environ, start_response):
         return _handle_webhook(environ, start_response)
     else:
         return _json_response(start_response, 404, {"error": "not found"})
+
+
+# 後方互換: main:application でも起動可能
+application = app
 
 
 def _handle_health(environ, start_response):

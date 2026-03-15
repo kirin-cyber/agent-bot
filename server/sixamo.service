@@ -3,13 +3,13 @@ Description=Sixamo API Server (gunicorn + main.py)
 After=network.target
 
 [Service]
-Type=notify
+Type=simple
 User=www-data
 Group=www-data
 WorkingDirectory=/opt/sixamo
 EnvironmentFile=-/opt/sixamo/.env
 Environment=GUNICORN_WORKERS=2
-ExecStart=/usr/bin/gunicorn main:application \
+ExecStart=/opt/sixamo/venv/bin/gunicorn main:app \
     --bind 127.0.0.1:5000 \
     --workers 2 \
     --timeout 60 \
@@ -17,7 +17,6 @@ ExecStart=/usr/bin/gunicorn main:application \
     --error-logfile /opt/sixamo/error.log
 Restart=always
 RestartSec=5
-KillMode=mixed
 
 [Install]
 WantedBy=multi-user.target

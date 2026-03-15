@@ -352,12 +352,27 @@ class AppHandler(BaseHTTPRequestHandler):
 
 
 def _count_templates() -> int:
-    """返信テンプレート数をカウント（将来のテンプレート機能用）"""
-    template_dir = os.path.join(os.path.dirname(__file__), "templates")
-    if not os.path.isdir(template_dir):
+    """templates.yaml から返信テンプレート数をカウント"""
+    template_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "templates.yaml")
+    if not os.path.isfile(template_path):
         return 0
-    return len([f for f in os.listdir(template_dir)
-                if f.endswith((".txt", ".html", ".j2"))])
+    try:
+        import yaml
+        with open(template_path) as f:
+            data = yaml.safe_load(f)
+        templates = data.get("templates", []) if isinstance(data, dict) else []
+        return len(templates)
+    except ImportError:
+        # PyYAML が無い場合は簡易パース（"- category:" の行数をカウント）
+        try:
+            with open(template_path) as f:
+                return sum(1 for line in f
+                           if line.strip().startswith("- category:"))
+        except Exception:
+            return 0
+    except Exception:
+        return 0
 
 
 def _send_startup_notification():

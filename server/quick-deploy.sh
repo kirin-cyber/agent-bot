@@ -106,6 +106,11 @@ if [ -f "$SCRIPT_DIR/test_webhook.py" ]; then
     echo "  -> test_webhook.py を配置しました"
 fi
 
+if [ -f "$SCRIPT_DIR/templates.yaml" ]; then
+    cp "$SCRIPT_DIR/templates.yaml" "$APP_DIR/templates.yaml"
+    echo "  -> templates.yaml を配置しました"
+fi
+
 # sixamo.service を更新（既存がなければ新規配置）
 if [ -f "$SCRIPT_DIR/sixamo.service" ]; then
     cp "$SCRIPT_DIR/sixamo.service" /etc/systemd/system/sixamo.service

@@ -147,6 +147,7 @@ def _send_startup_notification():
     from health_app import _count_templates, TELEGRAM_BOT_TOKEN
     dryrun_label = "ON" if DRYRUN_MODE else "OFF"
     template_count = _count_templates()
+    webhook_status = "enabled" if ZENDESK_WEBHOOK_SECRET else "disabled"
     # gunicorn ワーカー数を取得
     worker_count = int(os.environ.get("WEB_CONCURRENCY",
                        os.environ.get("GUNICORN_WORKERS", "1")))
@@ -155,6 +156,7 @@ def _send_startup_notification():
         f"🚀 <b>サーバーが起動しました</b>\n"
         f"\n"
         f"DRYRUNモード：{dryrun_label}\n"
+        f"Zendesk webhook：{webhook_status}\n"
         f"テンプレート数：{template_count}件\n"
         f"ワーカー数：{worker_count}"
     )

@@ -351,6 +351,35 @@ class AppHandler(BaseHTTPRequestHandler):
             access_log.info(msg)
 
 
+def _count_templates() -> int:
+    """返信テンプレート数をカウント（将来のテンプレート機能用）"""
+    template_dir = os.path.join(os.path.dirname(__file__), "templates")
+    if not os.path.isdir(template_dir):
+        return 0
+    return len([f for f in os.listdir(template_dir)
+                if f.endswith((".txt", ".html", ".j2"))])
+
+
+def _send_startup_notification():
+    """サーバー起動時にTelegramへ通知を送信"""
+    dryrun_label = "ON" if DRYRUN_MODE else "OFF"
+    template_count = _count_templates()
+    worker_count = 1  # シングルスレッドHTTPServer
+
+    msg = (
+        f"🚀 <b>サーバーが起動しました</b>\n"
+        f"\n"
+        f"DRYRUNモード：{dryrun_label}\n"
+        f"テンプレート数：{template_count}件\n"
+        f"ワーカー数：{worker_count}"
+    )
+    sent = send_telegram(msg)
+    if sent:
+        access_log.info("起動通知をTelegramに送信しました")
+    else:
+        access_log.warning("起動通知の送信に失敗しました")
+
+
 def main():
     host = os.environ.get("HEALTH_HOST", "127.0.0.1")
     port = int(os.environ.get("HEALTH_PORT", "5000"))
@@ -361,6 +390,10 @@ def main():
     access_log.info("  Telegram:        %s",
                     "enabled" if TELEGRAM_BOT_TOKEN else "disabled (no token)")
     access_log.info("  DRYRUN_MODE:     %s", DRYRUN_MODE)
+
+    # 起動通知をTelegramに送信
+    _send_startup_notification()
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:

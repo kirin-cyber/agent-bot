@@ -1,0 +1,167 @@
+{
+  "webhooks": {
+    "entry": {
+      "name": "エントリー用Webhook",
+      "description": "Glideからスクショ画像を受信し、エントリー記録フローを開始する",
+      "url": "https://hook.make.com/YOUR_ENTRY_WEBHOOK_ID",
+      "method": "POST",
+      "content_type": "multipart/form-data",
+      "request": {
+        "fields": [
+          {
+            "name": "image",
+            "type": "file",
+            "required": true,
+            "description": "LINEオープンチャットのスクリーンショット画像（PNG/JPEG）"
+          },
+          {
+            "name": "uploaded_by",
+            "type": "string",
+            "required": false,
+            "description": "アップロードしたユーザー名（任意）"
+          }
+        ]
+      },
+      "response": {
+        "success": {
+          "status": 200,
+          "body": {
+            "management_id": "自動採番された管理ID",
+            "parsed_data": {
+              "date": "MM/DD",
+              "time": "HH:MM",
+              "instructor": "講師名",
+              "result": "Wait",
+              "symbol": "銘柄",
+              "direction": "Buy or Sell",
+              "entry_price": 0,
+              "stop_loss": 0,
+              "take_profit": 0,
+              "message": "メッセージ原文"
+            },
+            "status": "success"
+          }
+        },
+        "error": {
+          "status": 400,
+          "body": {
+            "error": "エラーメッセージ",
+            "status": "error"
+          }
+        }
+      }
+    },
+    "settlement": {
+      "name": "決済用Webhook",
+      "description": "決済スクショを受信し、既存ポジションの決済処理を行う",
+      "url": "https://hook.make.com/YOUR_SETTLEMENT_WEBHOOK_ID",
+      "method": "POST",
+      "content_type": "multipart/form-data",
+      "request": {
+        "fields": [
+          {
+            "name": "image",
+            "type": "file",
+            "required": true,
+            "description": "決済を示すLINEスクリーンショット画像（PNG/JPEG）"
+          },
+          {
+            "name": "management_id",
+            "type": "integer",
+            "required": true,
+            "description": "未決済リストから選択された管理ID"
+          }
+        ]
+      },
+      "response": {
+        "success": {
+          "status": 200,
+          "body": {
+            "management_id": "対象の管理ID",
+            "close_price": 0,
+            "is_final": true,
+            "result": "Win/Lose/Draw（最終決済時）またはWait（分割決済時）",
+            "pips": 0,
+            "status": "success"
+          }
+        },
+        "error": {
+          "status": 400,
+          "body": {
+            "error": "エラーメッセージ",
+            "status": "error"
+          }
+        }
+      }
+    }
+  },
+  "glide_screens": {
+    "upload_screen": {
+      "name": "アップロード画面",
+      "description": "エントリー／決済タブ切り替え＋画像選択",
+      "components": [
+        {
+          "type": "tab_bar",
+          "tabs": ["エントリー", "決済"]
+        },
+        {
+          "type": "image_picker",
+          "label": "スクショを選択",
+          "accept": "image/png, image/jpeg"
+        },
+        {
+          "type": "button",
+          "label": "送信",
+          "action": "webhook_call"
+        }
+      ]
+    },
+    "confirm_screen": {
+      "name": "確認・修正画面",
+      "description": "AI読み取り結果を表示・手修正可能",
+      "components": [
+        {
+          "type": "text_field",
+          "fields": ["日付", "講師名", "通貨", "方向", "レート値", "LC予定", "TP予定", "備考"]
+        },
+        {
+          "type": "button",
+          "label": "登録",
+          "action": "confirm_and_write"
+        },
+        {
+          "type": "button",
+          "label": "キャンセル",
+          "action": "cancel"
+        }
+      ]
+    },
+    "complete_screen": {
+      "name": "完了画面",
+      "description": "Sheets記録完了を通知・管理IDを表示",
+      "components": [
+        {
+          "type": "text",
+          "label": "登録完了",
+          "value": "管理ID: {management_id}"
+        }
+      ]
+    },
+    "open_positions_screen": {
+      "name": "未決済リスト画面",
+      "description": "D列=Waitのポジション一覧を表示・タップ選択",
+      "data_source": "Google Sheets (D列=Wait でフィルタ)",
+      "components": [
+        {
+          "type": "list",
+          "display_fields": ["管理ID", "日付", "講師名", "通貨", "方向", "レート値"],
+          "filter": "result == 'Wait'"
+        },
+        {
+          "type": "action",
+          "on_tap": "決済フローへ遷移（management_idを渡す）"
+        }
+      ]
+    }
+  }
+}

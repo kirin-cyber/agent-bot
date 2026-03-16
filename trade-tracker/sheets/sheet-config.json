@@ -1,0 +1,143 @@
+{
+  "spreadsheet": {
+    "name": "トレード自動記録",
+    "sheet_name": "トレード記録",
+    "header_row": 1,
+    "data_start_row": 2
+  },
+  "columns": {
+    "A": {
+      "header": "管理ID",
+      "type": "number",
+      "input": "auto",
+      "description": "Make側で自動採番（連番）。未決済リストの選択キー",
+      "format": "0"
+    },
+    "B": {
+      "header": "日付",
+      "type": "string",
+      "input": "ai_auto",
+      "description": "スクショから読み取り・JST変換",
+      "format": "MM/DD"
+    },
+    "C": {
+      "header": "講師名",
+      "type": "string",
+      "input": "ai_auto",
+      "description": "AI読み取り",
+      "allowed_values": [
+        "よっとん",
+        "うなぎ",
+        "カエデ",
+        "処刑ちゃん",
+        "小鳥",
+        "sixamo",
+        "ミカサ"
+      ]
+    },
+    "D": {
+      "header": "勝敗",
+      "type": "string",
+      "input": "auto",
+      "description": "エントリー時=Wait、最終決済時にWin/Lose/Drawを自動判定",
+      "allowed_values": ["Wait", "Win", "Lose", "Draw"]
+    },
+    "E": {
+      "header": "通貨",
+      "type": "string",
+      "input": "ai_auto",
+      "description": "銘柄の統一表記",
+      "examples": ["USD/JPY", "EUR/USD", "GBP/USD", "XAU/USD", "NAS100", "BTC/USD", "ETH/USD"]
+    },
+    "F": {
+      "header": "方向",
+      "type": "string",
+      "input": "ai_auto",
+      "description": "Buy / Sell",
+      "allowed_values": ["Buy", "Sell"]
+    },
+    "G": {
+      "header": "レート値/指値",
+      "type": "number",
+      "input": "ai_auto",
+      "description": "エントリー価格（数値のみ）"
+    },
+    "H": {
+      "header": "LC予定",
+      "type": "number",
+      "input": "ai_auto",
+      "description": "損切り価格。pips指定の場合はAIが自動計算"
+    },
+    "I": {
+      "header": "分割決済",
+      "type": "string",
+      "input": "ai_auto_settlement",
+      "description": "部分利確の記載がある場合のみ記録。記載なしはnull"
+    },
+    "J": {
+      "header": "クローズ価格",
+      "type": "number",
+      "input": "ai_auto_settlement",
+      "description": "部分/最終とも上書き更新。1行で管理"
+    },
+    "K": {
+      "header": "TP予定",
+      "type": "number",
+      "input": "ai_auto",
+      "description": "テイクプロフィット価格（あれば）"
+    },
+    "L": {
+      "header": "損益pips",
+      "type": "number",
+      "input": "formula",
+      "description": "Sheets関数で自動計算。J列更新のたびに自動再計算",
+      "formula": "=IF(J2=\"\",\"\",IF(E2=\"XAU/USD\",(J2-G2)*IF(F2=\"Buy\",1,-1)*10,IF(OR(E2=\"BTC/USD\",E2=\"ETH/USD\",E2=\"NAS100\"),(J2-G2)*IF(F2=\"Buy\",1,-1)*0.1,(J2-G2)*IF(F2=\"Buy\",1,-1)*100)))"
+    },
+    "M": {
+      "header": "備考",
+      "type": "string",
+      "input": "ai_auto",
+      "description": "メッセージ原文"
+    }
+  },
+  "pips_calculation_rules": {
+    "FX": {
+      "symbols": ["USD/JPY", "EUR/USD", "GBP/USD", "EUR/JPY", "GBP/JPY", "AUD/USD", "AUD/JPY"],
+      "formula": "価格差 × 100",
+      "multiplier": 100
+    },
+    "GOLD": {
+      "symbols": ["XAU/USD"],
+      "formula": "価格差 × 10（1ドル差 = 10pips）",
+      "multiplier": 10
+    },
+    "CRYPTO": {
+      "symbols": ["BTC/USD", "ETH/USD"],
+      "formula": "価格差 × 0.1（100ドル差 = 10pips）",
+      "multiplier": 0.1
+    },
+    "INDEX": {
+      "symbols": ["NAS100"],
+      "formula": "価格差 × 0.1（10ポイント差 = 1pips）",
+      "multiplier": 0.1
+    }
+  },
+  "sl_calculation": {
+    "description": "SL価格の自動計算（pips指定の場合）",
+    "coefficient": 0.010,
+    "rules": {
+      "Buy": "エントリー価格 - (pips数 × 0.010)",
+      "Sell": "エントリー価格 + (pips数 × 0.010)"
+    }
+  },
+  "result_judgment": {
+    "description": "勝敗自動判定ロジック",
+    "trigger": "is_final=true のみ",
+    "rules": {
+      "Win": "損益pips > 0",
+      "Lose": "損益pips < 0",
+      "Draw": "損益pips = 0"
+    },
+    "note": "I列（分割決済）の有無は判定条件に含まない"
+  }
+}

@@ -1,0 +1,138 @@
+{
+  "name": "トレード自動記録 - エントリーフロー",
+  "description": "スクショ受信 → Claude Vision API解析 → 確認 → Google Sheets記録",
+  "scheduling": {
+    "type": "instant",
+    "trigger": "webhook"
+  },
+  "modules": [
+    {
+      "id": 1,
+      "module": "gateway:CustomWebHook",
+      "name": "Webhook受信（エントリー）",
+      "parameters": {
+        "hook_name": "trade-entry-webhook",
+        "data_structure": {
+          "image": {
+            "type": "file",
+            "required": true
+          },
+          "uploaded_by": {
+            "type": "string",
+            "required": false
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "module": "http:ActionSendData",
+      "name": "Claude Vision API呼び出し",
+      "parameters": {
+        "url": "https://api.anthropic.com/v1/messages",
+        "method": "POST",
+        "headers": [
+          {
+            "name": "x-api-key",
+            "value": "{{CLAUDE_API_KEY}}"
+          },
+          {
+            "name": "anthropic-version",
+            "value": "2023-06-01"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "model": "claude-sonnet-4-20250514",
+          "max_tokens": 1024,
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "image",
+                  "source": {
+                    "type": "base64",
+                    "media_type": "{{1.image.mimeType}}",
+                    "data": "{{base64(1.image.data)}}"
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "{{ENTRY_PROMPT}}"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "note": "プロンプトはprompts/entry-prompt.txtの内容を使用"
+    },
+    {
+      "id": 3,
+      "module": "json:ParseJSON",
+      "name": "Claude応答をJSON解析",
+      "parameters": {
+        "json_string": "{{2.data.content[0].text}}"
+      }
+    },
+    {
+      "id": 4,
+      "module": "gateway:WebhookRespond",
+      "name": "確認画面へデータ返却",
+      "parameters": {
+        "status": 200,
+        "body": {
+          "parsed_data": "{{3.json}}",
+          "status": "pending_confirmation"
+        }
+      },
+      "note": "Glide側で確認・修正画面を表示。ユーザーが確認後、次のWebhookで登録確定"
+    },
+    {
+      "id": 5,
+      "module": "google-sheets:ActionAddRow",
+      "name": "Google Sheetsに新規行追加",
+      "parameters": {
+        "spreadsheet_id": "{{SPREADSHEET_ID}}",
+        "sheet_name": "トレード記録",
+        "values": {
+          "A": "{{自動採番: 前行のA列+1}}",
+          "B": "{{3.json.date}}",
+          "C": "{{3.json.instructor}}",
+          "D": "Wait",
+          "E": "{{3.json.symbol}}",
+          "F": "{{3.json.direction}}",
+          "G": "{{3.json.entry_price}}",
+          "H": "{{3.json.stop_loss}}",
+          "I": "",
+          "J": "",
+          "K": "{{3.json.take_profit}}",
+          "L": "",
+          "M": "{{3.json.message}}"
+        }
+      },
+      "note": "管理ID(A列)はMake側で最終行+1で採番。L列は数式が入っているため空欄で追加"
+    },
+    {
+      "id": 6,
+      "module": "gateway:WebhookRespond",
+      "name": "完了通知",
+      "parameters": {
+        "status": 200,
+        "body": {
+          "management_id": "{{5.row_number}}",
+          "status": "success"
+        }
+      }
+    }
+  ],
+  "error_handling": {
+    "strategy": "rollback",
+    "notify": true,
+    "note": "エラー時はGlide側にエラーメッセージを返し、Sheets書き込みは行わない"
+  }
+}

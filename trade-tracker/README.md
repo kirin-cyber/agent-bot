@@ -1,58 +1,64 @@
 # トレード自動記録システム v3.1
 
-LINEオープンチャットのスクショをアップロードするだけで、Claude Vision APIが自動でトレード情報を読み取り、Googleスプレッドシートに記録するシステム。
+## 概要
+
+LINEオープンチャットのスクショをアップロードするだけで、
+Claude Vision APIがトレード情報を読み取りGoogleスプレッドシートに自動記録するシステム。
 
 ## 技術スタック
 
-| 役割 | ツール | 備考 |
-|------|--------|------|
-| フロントエンド | Glide（無料プラン） | スクショアップ・確認画面・未決済リスト |
-| 自動化ハブ | Make（無料プラン） | 月1,000オペレーション以内で運用 |
-| AI解析 | Claude Vision API | 従量課金（1回2〜5円程度） |
-| 記録先 | Google スプレッドシート | 無料 |
+| サービス | 用途 | コスト |
+|---------|------|--------|
+| Glide | フロントエンド | 無料プラン |
+| Make | 自動化（Webhook → API → Sheets） | 無料プラン・月1,000オペレーション以内 |
+| Claude Vision API | スクショからトレード情報を読み取り | 従量課金・1回2〜5円 |
+| Google スプレッドシート | トレード記録の保存先 | 無料 |
 
-## ディレクトリ構成
+## フォルダ構成
 
 ```
 trade-tracker/
-├── frontend/                  # Glide連携用Webhook仕様
-│   └── webhook-spec.json      # エンドポイント仕様・画面構成定義
-├── make-scenarios/            # Makeシナリオ設定
-│   ├── entry-scenario.json    # エントリーフロー定義
-│   └── settlement-scenario.json # 決済フロー定義
-├── prompts/                   # Claude APIプロンプト
-│   ├── entry-prompt.txt       # エントリー用プロンプト
-│   └── settlement-prompt.txt  # 決済用プロンプト
-├── sheets/                    # スプレッドシート設定
-│   ├── sheet-config.json      # 列構成・計算ルール定義
-│   └── setup-formulas.txt     # 初期設定手順・数式
-└── README.md
+├── README.md              ← このファイル
+├── TEST_CHECKLIST.md      ← 結合テストチェックリスト
+├── frontend/
+│   ├── glide_screens.md   ← Glide画面仕様（4画面）
+│   └── webhook-spec.json  ← Webhook API仕様
+├── make-scenarios/
+│   ├── entry_scenario.md  ← エントリーフロー設定手順
+│   ├── entry-scenario.json
+│   ├── close_scenario.md  ← 決済フロー設定手順
+│   └── close-scenario.json
+├── prompts/
+│   ├── entry_prompt.txt   ← エントリー読み取りプロンプト
+│   └── close_prompt.txt   ← 決済読み取りプロンプト
+└── sheets/
+    └── sheet-config.json  ← スプレッドシート列構成・計算式
 ```
+
+## 構築手順
+
+1. **Google Sheets** — 列構成・計算式の設定（`sheets/sheet-config.json` 参照）
+2. **Anthropic Console** — APIキー発行
+3. **Make** — シナリオ2本作成（`make-scenarios/entry_scenario.md` / `close_scenario.md` 参照）
+4. **Glide** — アプリ4画面作成（`frontend/glide_screens.md` 参照）
+5. **結合テスト** — 全項目チェック（`TEST_CHECKLIST.md` 参照）
 
 ## 運用フロー
 
 ### エントリー記録
+
 1. Glideアプリでスクショを選択（エントリータブ）
 2. Make Webhookが受信 → Claude Vision APIで解析
 3. 確認・修正画面でAI読み取り結果を確認
 4. Google Sheetsに新規行追加（勝敗=Wait）
 
 ### 決済記録
+
 1. 未決済リスト（D列=Wait）からポジションをタップ選択
 2. 決済スクショをアップロード
 3. Claude Vision APIでクローズ価格・分割/最終を判定
 4. 既存行のJ列・I列を上書き更新
 5. 最終決済時（is_final=true）→ 損益pipsに基づきWin/Lose/Drawを自動判定
-
-## 構築手順
-
-| 順 | 作業 | 参照ファイル |
-|----|------|-------------|
-| 1 | Google Sheets準備 | `sheets/setup-formulas.txt` |
-| 2 | Claude APIキー取得 | Anthropicコンソール |
-| 3 | Makeシナリオ作成 | `make-scenarios/*.json` |
-| 4 | Glideアプリ作成 | `frontend/webhook-spec.json` |
-| 5 | 結合テスト | 実際のLINEスクショで動作確認 |
 
 ## 損益計算ルール
 
@@ -69,6 +75,12 @@ trade-tracker/
 - 最終決済（is_final=true）かつ pips > 0 → `Win`
 - 最終決済（is_final=true）かつ pips < 0 → `Lose`
 - 最終決済（is_final=true）かつ pips = 0 → `Draw`
-- 分割決済中 → `Wait`維持
+- 分割決済中 → `Wait` 維持
 
 ※ I列（分割決済）の有無は判定条件に含まない
+
+## 運用上の注意
+
+- スクショは1講師・1トレードが明確に見える状態でアップロードする
+- APIキーはMakeのシナリオ内にのみ設定し外部に漏らさない
+- Makeの月間オペレーション数を1,000以内に収める（1トレード=エントリー+決済で約6〜8オペレーション）

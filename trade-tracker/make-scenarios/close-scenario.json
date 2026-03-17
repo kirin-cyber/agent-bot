@@ -1,0 +1,174 @@
+{
+  "name": "トレード自動記録 - 決済フロー（分割・最終共通）",
+  "description": "決済スクショ受信 → Claude Vision API解析 → 既存行更新 → 勝敗判定",
+  "scheduling": {
+    "type": "instant",
+    "trigger": "webhook"
+  },
+  "modules": [
+    {
+      "id": 1,
+      "module": "gateway:CustomWebHook",
+      "name": "Webhook受信（決済）",
+      "parameters": {
+        "hook_name": "trade-close-webhook",
+        "data_structure": {
+          "image": {
+            "type": "file",
+            "required": true
+          },
+          "management_id": {
+            "type": "integer",
+            "required": true,
+            "description": "未決済リストから選択された管理ID"
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "module": "http:ActionSendData",
+      "name": "Claude Vision API呼び出し（決済解析）",
+      "parameters": {
+        "url": "https://api.anthropic.com/v1/messages",
+        "method": "POST",
+        "headers": [
+          {
+            "name": "x-api-key",
+            "value": "{{CLAUDE_API_KEY}}"
+          },
+          {
+            "name": "anthropic-version",
+            "value": "2023-06-01"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "model": "claude-sonnet-4-20250514",
+          "max_tokens": 1024,
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "image",
+                  "source": {
+                    "type": "base64",
+                    "media_type": "{{1.image.mimeType}}",
+                    "data": "{{base64(1.image.data)}}"
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "{{CLOSE_PROMPT}}"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "note": "プロンプトはprompts/close_prompt.txtの内容を使用"
+    },
+    {
+      "id": 3,
+      "module": "json:ParseJSON",
+      "name": "Claude応答をJSON解析",
+      "parameters": {
+        "json_string": "{{2.data.content[0].text}}"
+      }
+    },
+    {
+      "id": 4,
+      "module": "google-sheets:ActionSearchRows",
+      "name": "管理IDで対象行を検索",
+      "parameters": {
+        "spreadsheet_id": "{{SPREADSHEET_ID}}",
+        "sheet_name": "トレード記録",
+        "filter": {
+          "column": "A",
+          "value": "{{1.management_id}}"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "module": "google-sheets:ActionUpdateRow",
+      "name": "J列（クローズ価格）・I列（分割メモ）を更新",
+      "parameters": {
+        "spreadsheet_id": "{{SPREADSHEET_ID}}",
+        "sheet_name": "トレード記録",
+        "row_number": "{{4.row_number}}",
+        "values": {
+          "I": "{{3.json.memo}}",
+          "J": "{{3.json.close_price}}"
+        }
+      },
+      "note": "J列更新によりL列の損益pips計算式が自動再計算される"
+    },
+    {
+      "id": 6,
+      "module": "builtin:BasicRouter",
+      "name": "最終決済判定ルーター",
+      "routes": [
+        {
+          "label": "最終決済（is_final=true）",
+          "condition": "{{3.json.is_final}} == true",
+          "modules": [
+            {
+              "id": 7,
+              "module": "google-sheets:ActionGetCell",
+              "name": "L列（損益pips）を取得",
+              "parameters": {
+                "spreadsheet_id": "{{SPREADSHEET_ID}}",
+                "sheet_name": "トレード記録",
+                "cell": "L{{4.row_number}}"
+              }
+            },
+            {
+              "id": 8,
+              "module": "google-sheets:ActionUpdateRow",
+              "name": "D列（勝敗）を更新",
+              "parameters": {
+                "spreadsheet_id": "{{SPREADSHEET_ID}}",
+                "sheet_name": "トレード記録",
+                "row_number": "{{4.row_number}}",
+                "values": {
+                  "D": "{{if(7.value > 0, 'Win', if(7.value < 0, 'Lose', 'Draw'))}}"
+                }
+              },
+              "note": "勝敗判定: pips>0→Win, pips<0→Lose, pips=0→Draw。is_final=trueのみトリガー"
+            }
+          ]
+        },
+        {
+          "label": "分割決済（is_final=false）",
+          "condition": "{{3.json.is_final}} == false",
+          "modules": [],
+          "note": "分割決済時はD列=Wait維持。J列・I列の更新のみ（モジュール5で完了済み）"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "module": "gateway:WebhookRespond",
+      "name": "完了通知",
+      "parameters": {
+        "status": 200,
+        "body": {
+          "management_id": "{{1.management_id}}",
+          "close_price": "{{3.json.close_price}}",
+          "is_final": "{{3.json.is_final}}",
+          "status": "success"
+        }
+      }
+    }
+  ],
+  "error_handling": {
+    "strategy": "rollback",
+    "notify": true,
+    "note": "エラー時はGlide側にエラーメッセージを返し、Sheets更新は行わない"
+  }
+}

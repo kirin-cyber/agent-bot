@@ -8,6 +8,7 @@ VPS (133.117.75.92) 上で動作するAPIサーバー。
 import base64
 import hashlib
 import hmac
+import html
 import ipaddress
 import json
 import logging
@@ -166,14 +167,17 @@ def format_ticket_message(payload: dict) -> str:
     """Zendesk チケット情報を Telegram 用にフォーマット"""
     ticket = payload.get("ticket", payload)
     ticket_id = ticket.get("id", "不明")
-    subject = ticket.get("subject", ticket.get("title", "件名なし"))
-    status = ticket.get("status", "不明")
-    priority = ticket.get("priority", "未設定")
+    subject = html.escape(str(ticket.get("subject", ticket.get("title", "件名なし"))))
+    status = html.escape(str(ticket.get("status", "不明")))
+    priority = html.escape(str(ticket.get("priority", "未設定")))
     requester = ticket.get("requester", {})
-    requester_name = requester.get("name", "不明") if isinstance(requester, dict) else str(requester)
+    requester_name = html.escape(
+        requester.get("name", "不明") if isinstance(requester, dict) else str(requester)
+    )
     description = ticket.get("description", ticket.get("comment", {}).get("body", ""))
     if len(description) > 200:
         description = description[:200] + "..."
+    description = html.escape(str(description))
 
     msg = (
         f"✅ <b>Zendesk返信案</b>\n"
@@ -196,12 +200,14 @@ def format_ticket_message(payload: dict) -> str:
 def format_parse_error_message(raw_body: str, error_msg: str) -> str:
     """パースエラー時の Telegram 通知メッセージ"""
     preview = raw_body[:200] + "..." if len(raw_body) > 200 else raw_body
+    safe_preview = html.escape(preview)
+    safe_error = html.escape(error_msg)
     return (
         f"⚠️ <b>Webhook パースエラー</b>\n"
         f"\n"
-        f"<b>エラー:</b> {error_msg}\n"
+        f"<b>エラー:</b> {safe_error}\n"
         f"\n"
-        f"<b>受信データ:</b>\n<code>{preview}</code>"
+        f"<b>受信データ:</b>\n<code>{safe_preview}</code>"
     )
 
 

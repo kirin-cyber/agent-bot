@@ -13,8 +13,10 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import subprocess
 import time
+import urllib.error
 import urllib.request
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -142,22 +144,50 @@ def is_zendesk_ip(client_ip: str) -> bool:
 # Telegram 通知
 # ---------------------------------------------------------------
 
+def _send_telegram_request(url: str, text: str, parse_mode: str = "") -> bool:
+    """Telegram sendMessage API を呼び出す（内部用）"""
+    params = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
+    if parse_mode:
+        params["parse_mode"] = parse_mode
+    data = urllib.parse.urlencode(params).encode("utf-8")
+    req = urllib.request.Request(url, data=data, method="POST")
+    req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return resp.status == 200
+
+
+def _strip_html_tags(text: str) -> str:
+    """HTML タグを除去しエンティティを復元してプレーンテキストに変換"""
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html.unescape(text)
+    return text
+
+
 def send_telegram(text: str) -> bool:
-    """Telegram Bot API でメッセージを送信"""
+    """Telegram Bot API でメッセージを送信（HTML失敗時はプレーンテキストで再送）"""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         access_log.warning("Telegram未設定。メッセージ: %s", text)
         return False
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    data = urllib.parse.urlencode({
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": text,
-        "parse_mode": "HTML",
-    }).encode("utf-8")
+    # 1) HTML モードで送信を試みる
     try:
-        req = urllib.request.Request(url, data=data, method="POST")
-        req.add_header("Content-Type", "application/x-www-form-urlencoded")
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return resp.status == 200
+        return _send_telegram_request(url, text, parse_mode="HTML")
+    except urllib.error.HTTPError as e:
+        err_body = ""
+        try:
+            err_body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        error_log.error("Telegram送信失敗(HTML): %s — %s", e, err_body)
+        # 2) 400 の場合はプレーンテキストにフォールバック
+        if e.code == 400:
+            error_log.info("プレーンテキストで再送信を試みます")
+            try:
+                return _send_telegram_request(url, _strip_html_tags(text))
+            except Exception as e2:
+                error_log.error("Telegram再送信も失敗: %s", e2)
+                return False
+        return False
     except Exception as e:
         error_log.error("Telegram送信失敗: %s", e)
         return False
@@ -197,8 +227,14 @@ def format_ticket_message(payload: dict) -> str:
     return msg
 
 
+def _sanitize_text(text: str) -> str:
+    """制御文字（タブ・改行以外）を除去"""
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", text)
+
+
 def format_parse_error_message(raw_body: str, error_msg: str) -> str:
     """パースエラー時の Telegram 通知メッセージ"""
+    raw_body = _sanitize_text(raw_body)
     preview = raw_body[:200] + "..." if len(raw_body) > 200 else raw_body
     safe_preview = html.escape(preview)
     safe_error = html.escape(error_msg)

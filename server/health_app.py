@@ -51,6 +51,7 @@ ZENDESK_IP_RANGES = os.environ.get("ZENDESK_IP_RANGES", "216.198.0.0/18")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 DRYRUN_MODE = os.environ.get("DRYRUN_MODE", "false").lower() in ("true", "1", "yes")
+ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "")
 LOG_DIR = os.environ.get("LOG_DIR", "/opt/sixamo")
 
 # --- ログ設定 ---
@@ -223,6 +224,8 @@ def format_ticket_message(payload: dict) -> str:
 
     if DRYRUN_MODE:
         msg += "\n\n⚠️ DRYRUNモード中 — 自動返信は送信されません"
+
+    msg += "\n\n💬 このメッセージにリプライで返信できます"
 
     return msg
 

@@ -6,7 +6,6 @@ gunicorn から起動される WSGI アプリケーション。
     gunicorn main:app -b 127.0.0.1:5000 --workers 2 --timeout 60
 """
 
-import fcntl
 import json
 import os
 import sys
@@ -28,10 +27,8 @@ from health_app import (
     ZENDESK_WEBHOOK_SECRET,
     ZENDESK_IP_RANGES,
     DRYRUN_MODE,
-    ADMIN_CHAT_ID,
     _dedup,
 )
-import telegram_bot
 
 
 # ---------------------------------------------------------------
@@ -155,13 +152,11 @@ def _send_startup_notification():
     worker_count = int(os.environ.get("WEB_CONCURRENCY",
                        os.environ.get("GUNICORN_WORKERS", "1")))
 
-    tg_bot_status = "enabled" if ADMIN_CHAT_ID else "disabled (ADMIN_CHAT_ID未設定)"
     msg = (
         f"🚀 <b>サーバーが起動しました</b>\n"
         f"\n"
         f"DRYRUNモード：{dryrun_label}\n"
         f"Zendesk webhook：{webhook_status}\n"
-        f"Telegram Bot：{tg_bot_status}\n"
         f"テンプレート数：{template_count}件\n"
         f"ワーカー数：{worker_count}"
     )
@@ -177,37 +172,3 @@ def _send_startup_notification():
 # （gunicorn のワーカー起動を遅延させないため）
 _startup_thread = threading.Thread(target=_send_startup_notification, daemon=True)
 _startup_thread.start()
-
-
-# ---------------------------------------------------------------
-# Telegram Bot ポーリング（1ワーカーのみ起動）
-# ---------------------------------------------------------------
-# gunicorn は複数ワーカーをforkするため、各ワーカーでモジュールが読み込まれる。
-# ファイルロック（LOCK_NB）で排他制御し、ロックを取得できた最初の
-# 1ワーカーだけが Bot ポーリングを起動する。
-
-_bot_lock_file = None  # GC でファイルが閉じられないようモジュールレベルで保持
-
-
-def _try_start_bot_polling():
-    """ファイルロックを取得できた場合のみ Bot ポーリングを開始"""
-    global _bot_lock_file
-    lock_path = os.path.join(
-        os.environ.get("LOG_DIR", "/opt/sixamo"), ".telegram_bot.lock"
-    )
-    try:
-        _bot_lock_file = open(lock_path, "w")
-        fcntl.flock(_bot_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        _bot_lock_file.write(str(os.getpid()))
-        _bot_lock_file.flush()
-    except (IOError, OSError):
-        # 別ワーカーが既にロック取得済み — このワーカーではポーリングしない
-        access_log.info("Telegram Bot: 別ワーカーで起動済み (pid=%s)", os.getpid())
-        return
-
-    access_log.info("Telegram Bot: このワーカーでポーリング開始 (pid=%s)", os.getpid())
-    telegram_bot.start_polling()
-
-
-_bot_thread = threading.Thread(target=_try_start_bot_polling, daemon=True)
-_bot_thread.start()

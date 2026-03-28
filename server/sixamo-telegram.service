@@ -1,0 +1,18 @@
+[Unit]
+Description=Sixamo Telegram Bot (Long Polling)
+After=network.target sixamo.service
+Wants=sixamo.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/sixamo
+EnvironmentFile=/opt/sixamo/.env
+ExecStart=/opt/sixamo/venv/bin/python3 /opt/sixamo/telegram_bot.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/opt/sixamo/telegram_bot.log
+StandardError=append:/opt/sixamo/telegram_bot.log
+
+[Install]
+WantedBy=multi-user.target

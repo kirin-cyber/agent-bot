@@ -6,6 +6,7 @@ gunicorn から起動される WSGI アプリケーション。
     gunicorn main:app -b 127.0.0.1:5000 --workers 2 --timeout 60
 """
 
+import fcntl
 import json
 import os
 import sys
@@ -177,6 +178,36 @@ def _send_startup_notification():
 _startup_thread = threading.Thread(target=_send_startup_notification, daemon=True)
 _startup_thread.start()
 
-# Telegram Bot ポーリングをバックグラウンドで起動
-_bot_thread = threading.Thread(target=telegram_bot.start_polling, daemon=True)
+
+# ---------------------------------------------------------------
+# Telegram Bot ポーリング（1ワーカーのみ起動）
+# ---------------------------------------------------------------
+# gunicorn は複数ワーカーをforkするため、各ワーカーでモジュールが読み込まれる。
+# ファイルロック（LOCK_NB）で排他制御し、ロックを取得できた最初の
+# 1ワーカーだけが Bot ポーリングを起動する。
+
+_bot_lock_file = None  # GC でファイルが閉じられないようモジュールレベルで保持
+
+
+def _try_start_bot_polling():
+    """ファイルロックを取得できた場合のみ Bot ポーリングを開始"""
+    global _bot_lock_file
+    lock_path = os.path.join(
+        os.environ.get("LOG_DIR", "/opt/sixamo"), ".telegram_bot.lock"
+    )
+    try:
+        _bot_lock_file = open(lock_path, "w")
+        fcntl.flock(_bot_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _bot_lock_file.write(str(os.getpid()))
+        _bot_lock_file.flush()
+    except (IOError, OSError):
+        # 別ワーカーが既にロック取得済み — このワーカーではポーリングしない
+        access_log.info("Telegram Bot: 別ワーカーで起動済み (pid=%s)", os.getpid())
+        return
+
+    access_log.info("Telegram Bot: このワーカーでポーリング開始 (pid=%s)", os.getpid())
+    telegram_bot.start_polling()
+
+
+_bot_thread = threading.Thread(target=_try_start_bot_polling, daemon=True)
 _bot_thread.start()

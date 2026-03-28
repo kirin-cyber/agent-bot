@@ -50,16 +50,16 @@ if not bot_log.handlers:
 # ---------------------------------------------------------------
 
 def _tg_api(method: str, params: dict = None) -> dict:
-    """Telegram Bot API を呼び出す"""
+    """Telegram Bot API を呼び出す（JSON形式で送信）"""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}"
-    data = urllib.parse.urlencode(params or {}).encode("utf-8")
+    data = json.dumps(params or {}).encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST")
-    req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    req.add_header("Content-Type", "application/json")
     with urllib.request.urlopen(req, timeout=POLL_TIMEOUT + 10) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _tg_send(chat_id: str, text: str, reply_markup: str = None) -> dict:
+def _tg_send(chat_id: str, text: str, reply_markup: dict = None) -> dict:
     """Telegram にメッセージを送信"""
     params = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
     if reply_markup:
@@ -163,15 +163,14 @@ def _is_admin(message: dict) -> bool:
     return sender_id == ADMIN_CHAT_ID
 
 
-def _build_status_buttons(ticket_id: int) -> str:
+def _build_status_buttons(ticket_id: int) -> dict:
     """チケットステータス変更用のインラインキーボードを構築"""
-    keyboard = {
+    return {
         "inline_keyboard": [[
             {"text": "✅ 解決済み", "callback_data": f"solve:{ticket_id}"},
             {"text": "📂 オープンのまま", "callback_data": f"open:{ticket_id}"},
         ]]
     }
-    return json.dumps(keyboard)
 
 
 def handle_reply(message: dict) -> None:
@@ -302,7 +301,7 @@ def start_polling() -> None:
             result = _tg_api("getUpdates", {
                 "offset": offset,
                 "timeout": POLL_TIMEOUT,
-                "allowed_updates": json.dumps(["message", "callback_query"]),
+                "allowed_updates": ["message", "callback_query"],
             })
 
             updates = result.get("result", [])

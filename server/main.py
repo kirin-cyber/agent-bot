@@ -27,8 +27,10 @@ from health_app import (
     ZENDESK_WEBHOOK_SECRET,
     ZENDESK_IP_RANGES,
     DRYRUN_MODE,
+    ADMIN_CHAT_ID,
     _dedup,
 )
+import telegram_bot
 
 
 # ---------------------------------------------------------------
@@ -152,11 +154,13 @@ def _send_startup_notification():
     worker_count = int(os.environ.get("WEB_CONCURRENCY",
                        os.environ.get("GUNICORN_WORKERS", "1")))
 
+    tg_bot_status = "enabled" if ADMIN_CHAT_ID else "disabled (ADMIN_CHAT_ID未設定)"
     msg = (
         f"🚀 <b>サーバーが起動しました</b>\n"
         f"\n"
         f"DRYRUNモード：{dryrun_label}\n"
         f"Zendesk webhook：{webhook_status}\n"
+        f"Telegram Bot：{tg_bot_status}\n"
         f"テンプレート数：{template_count}件\n"
         f"ワーカー数：{worker_count}"
     )
@@ -172,3 +176,7 @@ def _send_startup_notification():
 # （gunicorn のワーカー起動を遅延させないため）
 _startup_thread = threading.Thread(target=_send_startup_notification, daemon=True)
 _startup_thread.start()
+
+# Telegram Bot ポーリングをバックグラウンドで起動
+_bot_thread = threading.Thread(target=telegram_bot.start_polling, daemon=True)
+_bot_thread.start()
